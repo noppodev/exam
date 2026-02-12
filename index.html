@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NoppoExam</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+JP:wght@400;700;900&family=Noto+Serif+JP:wght@500;700;900&display=swap');
+        
+        :root {
+            --noppo-black: #000000;
+            --noppo-white: #ffffff;
+            --noppo-zinc: #f4f4f5;
+        }
+
+        body { 
+            font-family: 'Inter', 'Noto Sans JP', sans-serif; 
+            background-color: var(--noppo-white);
+            color: var(--noppo-black);
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* PDF Preview Styling */
+        .pdf-container { 
+            background: #e4e4e7; 
+            padding: 1rem;
+            min-height: calc(100vh - 120px);
+        }
+        .pdf-page {
+            width: 210mm;
+            min-height: 297mm;
+            padding: var(--pdf-padding, 20mm);
+            margin: 0 auto 20px auto;
+            background: white;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            position: relative;
+            color: #000;
+            transform-origin: top center;
+        }
+
+        @media (max-width: 768px) {
+            .pdf-page {
+                width: 100%;
+                min-height: auto;
+                aspect-ratio: 1 / 1.414;
+                transform: scale(1);
+                padding: 10mm;
+            }
+        }
+
+        .font-serif-jp { font-family: 'Noto Serif JP', serif; }
+
+        /* Hide Scrollbar */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        input, textarea { border-radius: 0 !important; }
+
+        .loading-screen {
+            position: fixed; inset: 0; background: white; z-index: 9999;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 900; font-size: 1.5rem; letter-spacing: -0.05em;
+        }
+
+        .animate-fade { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Active Tab indicator */
+        .tab-active { color: black !important; border-bottom: 2px solid black; }
+    </style>
+</head>
+<body class="overflow-hidden">
+    <div id="loading" class="loading-screen text-black">NoppoExam.</div>
+    <div id="app" class="h-screen flex flex-col"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const fbApp = initializeApp(firebaseConfig);
+        const auth = getAuth(fbApp);
+        const db = getFirestore(fbApp);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'noppo-exam-v3';
+
+        // NoppoAuth
+        const AUTH_WORKER_URL = "https://noppo-auth.noppo5319.workers.dev";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2YXZhc3JkeGd1cWtpaWdjeGtsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0MTk5ODcsImV4cCI6MjA4Mjk5NTk4N30.CVq3lyRbxek7Ejs4tP5sN9-0JNEXSLtCsC2Pj-skFFQ";
+
+        let state = {
+            user: null,
+            loading: true,
+            activeTab: 'edit', // 'edit' | 'preview' | 'settings'
+            isSaving: false,
+            design: {
+                fontFamily: 'font-serif-jp',
+                padding: 20,
+                fontSize: 14,
+                showCover: true,
+                showAnswerSheet: true,
+                showQRCode: true
+            },
+            testData: {
+                title: '第1回 定期考査',
+                subject: '数学',
+                instructions: '・答えはすべて解答用紙に記入すること。\n・計算は問題用紙の余白で行ってよい。',
+                sections: [
+                    {
+                        id: 's1',
+                        title: '次の計算をしなさい。',
+                        questions: [
+                            { id: 'q1', content: '2x + 5x', answerType: 'short', point: 5 }
+                        ]
+                    }
+                ]
+            }
+        };
+
+        // --- Auth Logic ---
+        async function loadUser() {
+            const params = new URLSearchParams(window.location.search);
+            const ticket = params.get('ticket');
+            try {
+                const url = `${AUTH_WORKER_URL}/auth/v1/user?ticket=${ticket}`;
+                const res = await fetch(url, { headers: { "apikey": SUPABASE_KEY } });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (ticket) {
+                        const cleanUrl = window.location.origin + window.location.pathname;
+                        window.history.replaceState({}, document.title, cleanUrl);
+                    }
+                    return { uid: data.id, displayName: data.user_metadata.display_name, photoURL: data.user_metadata.avatar_url };
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        window.goToLogin = () => {
+            const currentUrl = encodeURIComponent(window.location.href);
+            window.location.href = `${AUTH_WORKER_URL}?redirect=${currentUrl}`;
+        };
+
+        // --- Data Persistence ---
+        async function syncData() {
+            if (!state.user) return;
+            state.isSaving = true;
+            renderStatus();
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'data', 'current_exam'), {
+                    testData: state.testData,
+                    design: state.design,
+                    updatedAt: Date.now()
+                });
+            } catch (e) { console.error(e); }
+            state.isSaving = false;
+            renderStatus();
+        }
+
+        let saveTimer;
+        window.debouncedSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(syncData, 1500); };
+
+        // --- Rendering ---
+        function render() {
+            const app = document.getElementById('app');
+            document.getElementById('loading').style.display = 'none';
+
+            if (!state.user && !state.loading) {
+                app.innerHTML = renderLanding();
+                lucide.createIcons();
+                return;
+            }
+
+            app.innerHTML = `
+                ${renderMobileHeader()}
+                <main class="flex-1 overflow-y-auto no-scrollbar bg-white">
+                    ${state.activeTab === 'edit' ? renderEditor() : (state.activeTab === 'preview' ? renderPreviewContainer() : renderSettings())}
+                </main>
+                ${renderBottomNav()}
+            `;
+            lucide.createIcons();
+            if (state.activeTab === 'preview') {
+                setTimeout(renderQRCodes, 100);
+            }
+        }
+
+        function renderLanding() {
+            return `
+            <div class="h-full flex flex-col items-center justify-center p-8 text-center bg-white">
+                <div class="font-black italic text-4xl mb-2 tracking-tighter">NoppoExam.</div>
+                <div class="w-12 h-1 bg-black mb-8"></div>
+                <h1 class="text-3xl font-black mb-4 tracking-tight leading-tight">定期テスト作成を、<br>スマホで完結。</h1>
+                <p class="text-zinc-400 mb-12 max-w-xs text-sm font-medium">美しいレイアウト、解答用紙、QR管理。<br>先生のための、もっとも純粋なツール。</p>
+                <button onclick="goToLogin()" class="w-full max-w-xs py-4 bg-black text-white font-black text-sm tracking-widest hover:opacity-90 active:scale-95 transition-all">
+                    SIGN IN WITH NOPPO
+                </button>
+            </div>`;
+        }
+
+        function renderMobileHeader() {
+            return `
+            <header class="h-14 border-b border-zinc-100 bg-white flex items-center justify-between px-6 shrink-0 z-10">
+                <div class="font-black italic text-lg tracking-tighter">NoppoExam.</div>
+                <div id="save-indicator" class="text-[9px] font-black text-zinc-300"></div>
+            </header>`;
+        }
+
+        function renderBottomNav() {
+            const tabs = [
+                { id: 'edit', icon: 'edit-3', label: '作成' },
+                { id: 'preview', icon: 'eye', label: 'プレビュー' },
+                { id: 'settings', icon: 'sliders', label: '設定' }
+            ];
+            return `
+            <nav class="h-16 border-t border-zinc-100 bg-white flex items-center justify-around px-2 shrink-0">
+                ${tabs.map(t => `
+                    <button onclick="switchTab('${t.id}')" class="flex flex-col items-center gap-1 transition-all ${state.activeTab === t.id ? 'text-black' : 'text-zinc-300'}">
+                        <i data-lucide="${t.icon}" class="w-5 h-5"></i>
+                        <span class="text-[9px] font-black uppercase tracking-tighter">${t.label}</span>
+                    </button>
+                `).join('')}
+            </nav>`;
+        }
+
+        function renderEditor() {
+            return `
+            <div class="p-6 pb-24 animate-fade max-w-2xl mx-auto">
+                <div class="mb-10 space-y-2">
+                    <input type="text" value="${state.testData.title}" oninput="updateTestData('title', this.value)" class="w-full text-3xl font-black tracking-tighter outline-none placeholder-zinc-200" placeholder="試験名">
+                    <input type="text" value="${state.testData.subject}" oninput="updateTestData('subject', this.value)" class="w-full text-lg font-bold text-zinc-400 outline-none" placeholder="教科名">
+                </div>
+
+                <div class="space-y-6">
+                    ${state.testData.sections.map((s, sIdx) => `
+                        <div class="border-l-4 border-black pl-5 py-2 mb-10 relative group">
+                            <div class="flex items-center gap-3 mb-4">
+                                <span class="font-black text-2xl italic">${sIdx + 1}.</span>
+                                <input type="text" value="${s.title}" oninput="updateSectionTitle(${sIdx}, this.value)" class="flex-1 font-bold text-lg outline-none" placeholder="指示文">
+                                <button onclick="removeSection(${sIdx})" class="text-zinc-200 hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                            </div>
+                            
+                            <div class="space-y-4">
+                                ${s.questions.map((q, qIdx) => `
+                                    <div class="bg-zinc-50 p-4 space-y-3">
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-[10px] font-black text-zinc-400 tracking-widest">問 ${qIdx+1}</span>
+                                            <div class="flex items-center gap-2">
+                                                <select onchange="updateQuestionType(${sIdx}, ${qIdx}, this.value)" class="text-[9px] font-black bg-white border border-zinc-200 px-1 py-0.5 outline-none">
+                                                    <option value="short" ${q.answerType==='short'?'selected':''}>短文</option>
+                                                    <option value="long" ${q.answerType==='long'?'selected':''}>記述</option>
+                                                </select>
+                                                <div class="flex items-center bg-white border border-zinc-200">
+                                                    <input type="number" value="${q.point}" oninput="updateQuestionPoint(${sIdx}, ${qIdx}, this.value)" class="w-8 text-[9px] font-black text-center outline-none">
+                                                    <span class="text-[8px] font-black pr-1">点</span>
+                                                </div>
+                                                <button onclick="removeQuestion(${sIdx}, ${qIdx})" class="text-zinc-300"><i data-lucide="x" class="w-3 h-3"></i></button>
+                                            </div>
+                                        </div>
+                                        <textarea oninput="updateQuestionContent(${sIdx}, ${qIdx}, this.value)" class="w-full bg-white p-3 text-sm font-bold border-none outline-none min-h-[60px] resize-none" placeholder="問題文を入力">${q.content}</textarea>
+                                    </div>
+                                `).join('')}
+                                <button onclick="addQuestion(${sIdx})" class="w-full py-3 border border-dashed border-zinc-200 text-[10px] font-black text-zinc-400 hover:text-black hover:border-black transition-all">+ 設問を追加</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                    
+                    <button onclick="addSection()" class="w-full py-8 border-2 border-dashed border-zinc-100 text-zinc-300 font-black text-xs tracking-[0.2em] hover:text-black hover:border-black transition-all">
+                        + 大問を追加
+                    </button>
+                </div>
+            </div>`;
+        }
+
+        function renderSettings() {
+            return `
+            <div class="p-8 pb-24 animate-fade max-w-md mx-auto space-y-10">
+                <section>
+                    <h3 class="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-6">試験設定</h3>
+                    <div class="space-y-4">
+                        <div class="flex flex-col gap-1">
+                            <label class="text-[10px] font-black">注意事項</label>
+                            <textarea oninput="updateTestData('instructions', this.value)" class="bg-zinc-50 p-4 text-xs font-bold h-32 border-none outline-none resize-none">${state.testData.instructions}</textarea>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h3 class="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-6">デザイン</h3>
+                    <div class="space-y-3">
+                        ${[
+                            {id:'showCover', label:'表紙を出力'},
+                            {id:'showAnswerSheet', label:'解答用紙を出力'},
+                            {id:'showQRCode', label:'本人確認用QRを表示'}
+                        ].map(item => `
+                            <button onclick="updateDesign('${item.id}', ${!state.design[item.id]})" class="w-full flex items-center justify-between p-4 bg-zinc-50 ${state.design[item.id]?'text-black':'text-zinc-300'}">
+                                <span class="text-xs font-black">${item.label}</span>
+                                <i data-lucide="${state.design[item.id]?'check-square':'square'}" class="w-4 h-4"></i>
+                            </button>
+                        `).join('')}
+                    </div>
+                </section>
+
+                <section class="pt-10 border-t border-zinc-100">
+                    <div class="flex items-center gap-4">
+                        <img src="${state.user?.photoURL}" class="w-10 h-10 grayscale">
+                        <div>
+                            <p class="text-xs font-black">${state.user?.displayName}</p>
+                            <p class="text-[10px] text-zinc-400 font-bold uppercase tracking-tighter">Noppo User</p>
+                        </div>
+                    </div>
+                </section>
+            </div>`;
+        }
+
+        function renderPreviewContainer() {
+            return `
+            <div class="pdf-container animate-fade flex flex-col items-center">
+                <div class="w-full max-w-2xl mb-6">
+                    <button onclick="downloadPDF()" class="w-full py-4 bg-black text-white text-[10px] font-black tracking-[0.3em] flex items-center justify-center gap-2">
+                        <i data-lucide="file-down" class="w-4 h-4"></i> PDFを書き出す (A4)
+                    </button>
+                </div>
+                <div id="pdf-export-area" class="w-full">
+                    ${renderActualPDF()}
+                </div>
+            </div>`;
+        }
+
+        function renderActualPDF() {
+            const { design, testData } = state;
+            const style = `--pdf-padding: ${design.padding}mm; font-size: ${design.fontSize}px;`;
+            let html = '';
+
+            // Cover Page
+            if (design.showCover) {
+                html += `
+                <div class="pdf-page flex flex-col items-center ${design.fontFamily}" style="${style}">
+                    <div class="flex-1 flex flex-col items-center justify-center w-full space-y-16">
+                        <div class="text-[16px] font-black tracking-[1.5em] border-y-2 border-black py-6 w-full text-center uppercase">Examination</div>
+                        <h1 class="text-5xl font-black">${testData.title}</h1>
+                        <div class="text-7xl font-black pt-6">${testData.subject}</div>
+                        <div class="w-full max-w-lg p-8 border-2 border-black space-y-4">
+                            <div class="font-black text-sm underline underline-offset-4 italic">注意事項</div>
+                            <div class="whitespace-pre-wrap font-bold text-xs leading-relaxed">${testData.instructions}</div>
+                        </div>
+                    </div>
+                    <div class="w-full flex justify-between border-t-2 border-black pt-10 mt-auto">
+                        <div class="grid grid-cols-4 w-full max-w-md h-12 border-l border-t border-black">
+                             ${['学年','組','番号','氏名'].map(l => `<div class="border-r border-b border-black p-1 flex flex-col justify-between"><span class="text-[7px] font-black">${l}</span></div>`).join('')}
+                        </div>
+                        ${design.showQRCode ? `<div class="qr-code w-12 h-12 ml-6 border border-black p-0.5"></div>` : ''}
+                    </div>
+                </div>`;
+            }
+
+            // Questions Page
+            html += `
+            <div class="pdf-page ${design.fontFamily}" style="${style}">
+                <div class="flex justify-between border-b border-black mb-6 pb-0.5">
+                    <span class="font-bold text-[10px]">試験問題</span>
+                    <span class="font-black text-[10px]">${testData.subject}</span>
+                </div>
+                <div class="space-y-10">
+                    ${testData.sections.map((s, sIdx) => `
+                        <div style="break-inside: avoid;">
+                            <div class="flex items-start gap-3 mb-4">
+                                <span class="border border-black w-6 h-6 flex items-center justify-center font-black text-sm shrink-0">${sIdx+1}</span>
+                                <div class="font-black text-md pt-0.5">${s.title}</div>
+                            </div>
+                            <div class="space-y-6 pl-4">
+                                ${s.questions.map((q, qIdx) => `
+                                    <div class="flex gap-3" style="break-inside: avoid;">
+                                        <span class="font-black text-sm">問${qIdx+1}</span>
+                                        <div class="flex-1 font-bold text-sm leading-relaxed">${q.content}</div>
+                                        <span class="text-[9px] font-black pt-1 shrink-0">（${q.point}点）</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+
+            // Answer Sheet
+            if (design.showAnswerSheet) {
+                html += `
+                <div class="pdf-page ${design.fontFamily}" style="${style}">
+                    <div class="flex justify-between items-end border-b-2 border-black pb-2 mb-8">
+                        <h2 class="text-2xl font-black">解答用紙</h2>
+                        <div class="grid grid-cols-4 w-[240px] border-l border-t border-black">
+                             ${['学年','組','番号','氏名'].map(l => `<div class="border-r border-b border-black h-8 p-1"><span class="text-[6px] font-black">${l}</span></div>`).join('')}
+                        </div>
+                    </div>
+                    <div class="space-y-6">
+                        ${testData.sections.map((s, sIdx) => `
+                            <div class="border border-black" style="break-inside: avoid;">
+                                <div class="bg-black text-white px-2 py-0.5 text-[7px] font-black italic">${sIdx+1}</div>
+                                <div class="p-4 space-y-4">
+                                    ${s.questions.map((q, qIdx) => `
+                                        <div class="flex gap-3">
+                                            <div class="text-[8px] font-black w-5 h-5 border border-black flex items-center justify-center shrink-0">${qIdx+1}</div>
+                                            <div class="flex-1 border border-zinc-200 min-h-[30px] ${q.answerType==='long'?'min-h-[100px]':''}"></div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>`;
+            }
+
+            return html;
+        }
+
+        // --- Logic Functions ---
+        window.switchTab = (tab) => { state.activeTab = tab; render(); };
+        window.updateDesign = (key, val) => { state.design[key] = val; render(); debouncedSave(); };
+        window.updateTestData = (key, val) => { state.testData[key] = val; debouncedSave(); };
+        window.updateSectionTitle = (sIdx, val) => { state.testData.sections[sIdx].title = val; debouncedSave(); };
+        window.addSection = () => { state.testData.sections.push({ id: 's'+Date.now(), title: '問題を入力してください', questions: [] }); render(); debouncedSave(); };
+        window.removeSection = (sIdx) => { state.testData.sections.splice(sIdx, 1); render(); debouncedSave(); };
+        window.addQuestion = (sIdx) => { state.testData.sections[sIdx].questions.push({ id: 'q'+Date.now(), content: '問題の内容をここに入力', answerType: 'short', point: 5 }); render(); debouncedSave(); };
+        window.removeQuestion = (sIdx, qIdx) => { state.testData.sections[sIdx].questions.splice(qIdx, 1); render(); debouncedSave(); };
+        window.updateQuestionType = (sIdx, qIdx, val) => { state.testData.sections[sIdx].questions[qIdx].answerType = val; debouncedSave(); };
+        window.updateQuestionPoint = (sIdx, qIdx, val) => { state.testData.sections[sIdx].questions[qIdx].point = parseInt(val) || 0; debouncedSave(); };
+        window.updateQuestionContent = (sIdx, qIdx, val) => { state.testData.sections[sIdx].questions[qIdx].content = val; debouncedSave(); };
+
+        window.renderStatus = () => {
+            const el = document.getElementById('save-indicator');
+            if (el) el.innerHTML = state.isSaving ? 'SYNCING...' : 'SAVED';
+        };
+
+        window.renderQRCodes = () => {
+            document.querySelectorAll('.qr-code').forEach(el => {
+                el.innerHTML = '';
+                new QRCode(el, { text: state.user?.uid || "NoppoExam", width: 48, height: 48, colorDark: "#000000", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.H });
+            });
+        };
+
+        window.downloadPDF = () => {
+            const element = document.getElementById('pdf-export-area');
+            const opt = {
+                margin: 0,
+                filename: `${state.testData.title}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: ['css', 'legacy'] }
+            };
+            html2pdf().set(opt).from(element).save();
+        };
+
+        // --- Init ---
+        (async () => {
+            const user = await loadUser();
+            if (user) {
+                state.user = user;
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                const snap = await getDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'current_exam'));
+                if (snap.exists()) {
+                    const d = snap.data();
+                    state.testData = d.testData || state.testData;
+                    state.design = d.design || state.design;
+                }
+            }
+            state.loading = false;
+            render();
+        })();
+    </script>
+</body>
+</html>
