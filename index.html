@@ -9,7 +9,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+JP:wght@400;700;900&family=Noto+Serif+JP:wght@500;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=Noto+Sans+JP:wght@400;700;900&family=Noto+Serif+JP:wght@500;700;900&display=swap');
         
         :root {
             --noppo-black: #000000;
@@ -24,58 +24,79 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        /* PDF Preview Styling */
-        .pdf-container { 
-            background: #e4e4e7; 
-            padding: 1rem;
-            min-height: calc(100vh - 120px);
-        }
         .pdf-page {
             width: 210mm;
             min-height: 297mm;
-            padding: var(--pdf-padding, 20mm);
+            padding: 20mm;
             margin: 0 auto 20px auto;
             background: white;
             box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-            position: relative;
             color: #000;
-            transform-origin: top center;
         }
 
         @media (max-width: 768px) {
-            .pdf-page {
-                width: 100%;
-                min-height: auto;
-                aspect-ratio: 1 / 1.414;
-                transform: scale(1);
-                padding: 10mm;
+            .pdf-preview-container {
+                transform: scale(0.4);
+                transform-origin: top center;
+                width: 210mm;
+                margin-bottom: -180mm;
             }
         }
 
         .font-serif-jp { font-family: 'Noto Serif JP', serif; }
-
-        /* Hide Scrollbar */
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-
-        input, textarea { border-radius: 0 !important; }
-
-        .loading-screen {
-            position: fixed; inset: 0; background: white; z-index: 9999;
-            display: flex; align-items: center; justify-content: center;
-            font-weight: 900; font-size: 1.5rem; letter-spacing: -0.05em;
+        
+        input, textarea, select {
+            border-radius: 0 !important;
+            appearance: none;
         }
 
-        .animate-fade { animation: fadeIn 0.2s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .tab-active {
+            color: black !important;
+            border-bottom: 2px solid black;
+        }
 
-        /* Active Tab indicator */
-        .tab-active { color: black !important; border-bottom: 2px solid black; }
+        /* Loading Animation */
+        .loading-overlay {
+            position: fixed; inset: 0; background: white; z-index: 100;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 900; font-size: 1.5rem; letter-spacing: -0.05em;
+            transition: opacity 0.5s ease;
+        }
     </style>
 </head>
-<body class="overflow-hidden">
-    <div id="loading" class="loading-screen text-black">NoppoExam.</div>
-    <div id="app" class="h-screen flex flex-col"></div>
+<body class="overflow-hidden bg-white">
+
+    <div id="loading" class="loading-overlay">NoppoExam.</div>
+
+    <div id="app" class="h-screen flex flex-col opacity-0 transition-opacity duration-500">
+        <!-- Header -->
+        <header class="h-14 border-b border-zinc-100 flex items-center justify-between px-6 shrink-0 bg-white z-20">
+            <div class="font-black italic text-lg tracking-tighter">NoppoExam.</div>
+            <div id="status" class="text-[9px] font-black text-zinc-300 uppercase tracking-widest">Saved</div>
+        </header>
+
+        <!-- Main Content -->
+        <main id="main-content" class="flex-1 overflow-y-auto no-scrollbar pb-24">
+            <!-- Content will be injected here -->
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="h-16 border-t border-zinc-100 bg-white flex items-center justify-around px-2 shrink-0 z-20">
+            <button onclick="changeView('edit')" id="nav-edit" class="flex flex-col items-center gap-1 text-black">
+                <i data-lucide="edit-3" class="w-5 h-5"></i>
+                <span class="text-[9px] font-black uppercase tracking-tighter">作成</span>
+            </button>
+            <button onclick="changeView('preview')" id="nav-preview" class="flex flex-col items-center gap-1 text-zinc-300">
+                <i data-lucide="eye" class="w-5 h-5"></i>
+                <span class="text-[9px] font-black uppercase tracking-tighter">確認</span>
+            </button>
+            <button onclick="changeView('settings')" id="nav-settings" class="flex flex-col items-center gap-1 text-zinc-300">
+                <i data-lucide="sliders" class="w-5 h-5"></i>
+                <span class="text-[9px] font-black uppercase tracking-tighter">設定</span>
+            </button>
+        </nav>
+    </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -86,152 +107,284 @@
         const fbApp = initializeApp(firebaseConfig);
         const auth = getAuth(fbApp);
         const db = getFirestore(fbApp);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'noppo-exam-v3';
-
-        // NoppoAuth
-        const AUTH_WORKER_URL = "https://noppo-auth.noppo5319.workers.dev";
-        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2YXZhc3JkeGd1cWtpaWdjeGtsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0MTk5ODcsImV4cCI6MjA4Mjk5NTk4N30.CVq3lyRbxek7Ejs4tP5sN9-0JNEXSLtCsC2Pj-skFFQ";
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'noppo-exam-v1';
 
         let state = {
-            user: null,
-            loading: true,
-            activeTab: 'edit', // 'edit' | 'preview' | 'settings'
-            isSaving: false,
-            design: {
-                fontFamily: 'font-serif-jp',
-                padding: 20,
-                fontSize: 14,
-                showCover: true,
-                showAnswerSheet: true,
-                showQRCode: true
-            },
-            testData: {
+            view: 'edit',
+            test: {
                 title: '第1回 定期考査',
-                subject: '数学',
-                instructions: '・答えはすべて解答用紙に記入すること。\n・計算は問題用紙の余白で行ってよい。',
+                subject: '数学 I',
+                instructions: '1. 答えはすべて解答用紙に記入すること。\n2. 計算は問題用紙の余白で行うこと。',
                 sections: [
                     {
                         id: 's1',
-                        title: '次の計算をしなさい。',
+                        title: '次の問いに答えなさい。',
                         questions: [
-                            { id: 'q1', content: '2x + 5x', answerType: 'short', point: 5 }
+                            { id: 'q1', text: 'x + 5 = 10 のとき、xの値を求めよ。', point: 5, type: 'short' }
                         ]
                     }
                 ]
-            }
+            },
+            settings: {
+                showCover: true,
+                showAnswerSheet: true,
+                font: 'font-serif-jp'
+            },
+            user: null
         };
 
-        // --- Auth Logic ---
-        async function loadUser() {
-            const params = new URLSearchParams(window.location.search);
-            const ticket = params.get('ticket');
-            try {
-                const url = `${AUTH_WORKER_URL}/auth/v1/user?ticket=${ticket}`;
-                const res = await fetch(url, { headers: { "apikey": SUPABASE_KEY } });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (ticket) {
-                        const cleanUrl = window.location.origin + window.location.pathname;
-                        window.history.replaceState({}, document.title, cleanUrl);
-                    }
-                    return { uid: data.id, displayName: data.user_metadata.display_name, photoURL: data.user_metadata.avatar_url };
+        // UI Updates
+        window.changeView = (view) => {
+            state.view = view;
+            updateNav();
+            render();
+        };
+
+        function updateNav() {
+            ['edit', 'preview', 'settings'].forEach(v => {
+                const btn = document.getElementById(`nav-${v}`);
+                if (v === state.view) {
+                    btn.classList.remove('text-zinc-300');
+                    btn.classList.add('text-black');
+                } else {
+                    btn.classList.remove('text-black');
+                    btn.classList.add('text-zinc-300');
                 }
-            } catch (e) {}
-            return null;
+            });
         }
 
-        window.goToLogin = () => {
-            const currentUrl = encodeURIComponent(window.location.href);
-            window.location.href = `${AUTH_WORKER_URL}?redirect=${currentUrl}`;
-        };
+        // Data Management
+        function updateTest(path, value) {
+            const keys = path.split('.');
+            let current = state.test;
+            for(let i=0; i<keys.length-1; i++) current = current[keys[i]];
+            current[keys[keys.length-1]] = value;
+            saveData();
+        }
 
-        // --- Data Persistence ---
-        async function syncData() {
+        function addSection() {
+            state.test.sections.push({
+                id: 's' + Date.now(),
+                title: '新しい大問',
+                questions: []
+            });
+            render();
+            saveData();
+        }
+
+        function addQuestion(sIdx) {
+            state.test.sections[sIdx].questions.push({
+                id: 'q' + Date.now(),
+                text: '',
+                point: 5,
+                type: 'short'
+            });
+            render();
+            saveData();
+        }
+
+        async function saveData() {
             if (!state.user) return;
-            state.isSaving = true;
-            renderStatus();
+            document.getElementById('status').innerText = 'Syncing...';
             try {
-                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'data', 'current_exam'), {
-                    testData: state.testData,
-                    design: state.design,
+                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'exams', 'current'), {
+                    test: state.test,
+                    settings: state.settings,
                     updatedAt: Date.now()
                 });
-            } catch (e) { console.error(e); }
-            state.isSaving = false;
-            renderStatus();
+                document.getElementById('status').innerText = 'Saved';
+            } catch (e) {
+                document.getElementById('status').innerText = 'Error';
+            }
         }
 
-        let saveTimer;
-        window.debouncedSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(syncData, 1500); };
-
-        // --- Rendering ---
+        // Templates
         function render() {
-            const app = document.getElementById('app');
-            document.getElementById('loading').style.display = 'none';
+            const container = document.getElementById('main-content');
+            if (state.view === 'edit') {
+                container.innerHTML = `
+                    <div class="p-6 max-w-2xl mx-auto space-y-8 animate-in fade-in duration-300">
+                        <div class="space-y-2">
+                            <input type="text" value="${state.test.title}" oninput="updateTest('title', this.value)" class="w-full text-3xl font-black tracking-tighter outline-none border-none bg-transparent" placeholder="試験名">
+                            <input type="text" value="${state.test.subject}" oninput="updateTest('subject', this.value)" class="w-full text-sm font-bold text-zinc-400 outline-none border-none bg-transparent" placeholder="科目">
+                        </div>
 
-            if (!state.user && !state.loading) {
-                app.innerHTML = renderLanding();
+                        <div class="space-y-12">
+                            ${state.test.sections.map((s, sIdx) => `
+                                <div class="relative pl-6 border-l-2 border-black space-y-6">
+                                    <div class="flex items-center gap-3">
+                                        <span class="font-black italic text-xl">${sIdx + 1}.</span>
+                                        <input type="text" value="${s.title}" oninput="state.test.sections[${sIdx}].title = this.value; saveData();" class="flex-1 font-bold text-lg outline-none" placeholder="指示文">
+                                    </div>
+                                    
+                                    <div class="space-y-4">
+                                        ${s.questions.map((q, qIdx) => `
+                                            <div class="bg-zinc-50 p-4 space-y-3">
+                                                <div class="flex items-center justify-between text-[10px] font-black text-zinc-400 tracking-widest uppercase">
+                                                    <span>Question ${qIdx + 1}</span>
+                                                    <div class="flex items-center gap-2">
+                                                        <input type="number" value="${q.point}" oninput="state.test.sections[${sIdx}].questions[${qIdx}].point = this.value; saveData();" class="w-8 bg-transparent text-center outline-none border-b border-zinc-200">
+                                                        <span>Pts</span>
+                                                    </div>
+                                                </div>
+                                                <textarea oninput="state.test.sections[${sIdx}].questions[${qIdx}].text = this.value; saveData();" class="w-full bg-transparent font-bold text-sm outline-none resize-none min-h-[60px]" placeholder="問題文を入力">${q.text}</textarea>
+                                            </div>
+                                        `).join('')}
+                                        <button onclick="addQuestion(${sIdx})" class="w-full py-3 border border-dashed border-zinc-200 text-[10px] font-black text-zinc-300 hover:text-black hover:border-black transition-all">+ ADD QUESTION</button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                            
+                            <button onclick="addSection()" class="w-full py-10 border-2 border-dashed border-zinc-100 text-[10px] font-black text-zinc-300 tracking-[0.3em] hover:text-black hover:border-black transition-all">
+                                + ADD BIG SECTION
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else if (state.view === 'preview') {
+                container.innerHTML = `
+                    <div class="p-4 bg-zinc-100 min-h-full flex flex-col items-center gap-6">
+                        <button onclick="exportPDF()" class="w-full max-w-2xl py-4 bg-black text-white text-[10px] font-black tracking-[0.3em] flex items-center justify-center gap-2">
+                            <i data-lucide="download" class="w-4 h-4"></i> EXPORT PDF
+                        </button>
+                        <div id="pdf-content" class="pdf-preview-container">
+                            ${renderPDFPages()}
+                        </div>
+                    </div>
+                `;
                 lucide.createIcons();
-                return;
+            } else if (state.view === 'settings') {
+                container.innerHTML = `
+                    <div class="p-8 max-w-md mx-auto space-y-10">
+                        <section>
+                            <h3 class="text-[10px] font-black text-zinc-300 uppercase tracking-widest mb-6">General Instructions</h3>
+                            <textarea oninput="updateTest('instructions', this.value)" class="w-full bg-zinc-50 p-4 text-xs font-bold h-32 outline-none border-none resize-none leading-relaxed">${state.test.instructions}</textarea>
+                        </section>
+                        <section>
+                            <h3 class="text-[10px] font-black text-zinc-300 uppercase tracking-widest mb-6">Visual Style</h3>
+                            <div class="space-y-2">
+                                <button onclick="state.settings.showCover = !state.settings.showCover; render(); saveData();" class="w-full flex items-center justify-between p-4 bg-zinc-50 ${state.settings.showCover ? 'text-black' : 'text-zinc-300'}">
+                                    <span class="text-[10px] font-black uppercase">Cover Page</span>
+                                    <i data-lucide="${state.settings.showCover ? 'check' : 'minus'}" class="w-4 h-4"></i>
+                                </button>
+                                <button onclick="state.settings.showAnswerSheet = !state.settings.showAnswerSheet; render(); saveData();" class="w-full flex items-center justify-between p-4 bg-zinc-50 ${state.settings.showAnswerSheet ? 'text-black' : 'text-zinc-300'}">
+                                    <span class="text-[10px] font-black uppercase">Answer Sheet</span>
+                                    <i data-lucide="${state.settings.showAnswerSheet ? 'check' : 'minus'}" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </section>
+                    </div>
+                `;
             }
-
-            app.innerHTML = `
-                ${renderMobileHeader()}
-                <main class="flex-1 overflow-y-auto no-scrollbar bg-white">
-                    ${state.activeTab === 'edit' ? renderEditor() : (state.activeTab === 'preview' ? renderPreviewContainer() : renderSettings())}
-                </main>
-                ${renderBottomNav()}
-            `;
             lucide.createIcons();
-            if (state.activeTab === 'preview') {
-                setTimeout(renderQRCodes, 100);
+        }
+
+        function renderPDFPages() {
+            let html = '';
+            const { test, settings } = state;
+
+            // Cover
+            if (settings.showCover) {
+                html += `
+                    <div class="pdf-page flex flex-col items-center justify-between ${settings.font}">
+                        <div class="w-full border-y-2 border-black py-4 text-center font-black tracking-[1em] text-sm uppercase">NoppoExam System</div>
+                        <div class="flex flex-col items-center gap-8">
+                            <h1 class="text-4xl font-black">${test.title}</h1>
+                            <div class="text-6xl font-black py-4">${test.subject}</div>
+                            <div class="w-64 p-6 border-2 border-black text-[10px] font-bold leading-relaxed whitespace-pre-wrap">${test.instructions}</div>
+                        </div>
+                        <div class="w-full flex justify-between items-end border-t-2 border-black pt-8">
+                            <div class="grid grid-cols-4 w-96 h-12 border-l border-t border-black">
+                                ${['組','番号','氏名','得点'].map(l => `<div class="border-r border-b border-black p-1"><span class="text-[6px] font-black">${l}</span></div>`).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
             }
+
+            // Questions
+            html += `
+                <div class="pdf-page ${settings.font}">
+                    <div class="flex justify-between border-b border-black mb-8 pb-1">
+                        <span class="font-black text-[10px] uppercase tracking-widest">Question Paper</span>
+                        <span class="font-black text-[10px]">${test.subject}</span>
+                    </div>
+                    <div class="space-y-12">
+                        ${test.sections.map((s, sIdx) => `
+                            <div>
+                                <div class="flex items-start gap-4 mb-6">
+                                    <span class="w-8 h-8 border-2 border-black flex items-center justify-center font-black text-lg shrink-0">${sIdx + 1}</span>
+                                    <div class="font-black text-lg pt-0.5">${s.title}</div>
+                                </div>
+                                <div class="space-y-8 pl-12">
+                                    ${s.questions.map((q, qIdx) => `
+                                        <div class="flex gap-4">
+                                            <span class="font-black text-sm">問 ${qIdx + 1}</span>
+                                            <div class="flex-1 font-bold text-sm leading-relaxed">${q.text}</div>
+                                            <span class="text-[9px] font-black pt-1 shrink-0">[${q.point}点]</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+
+            // Answer Sheet
+            if (settings.showAnswerSheet) {
+                html += `
+                    <div class="pdf-page ${settings.font}">
+                        <div class="flex justify-between items-end border-b-2 border-black pb-2 mb-12">
+                            <h2 class="text-2xl font-black italic">Answer Sheet.</h2>
+                            <div class="grid grid-cols-3 w-64 border-l border-t border-black">
+                                ${['組','番号','氏名'].map(l => `<div class="border-r border-b border-black h-10 p-1"><span class="text-[6px] font-black">${l}</span></div>`).join('')}
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 gap-8">
+                            ${test.sections.map((s, sIdx) => `
+                                <div class="border border-black">
+                                    <div class="bg-black text-white px-3 py-1 text-[8px] font-black uppercase tracking-widest">${sIdx+1}</div>
+                                    <div class="p-6 grid grid-cols-1 gap-6">
+                                        ${s.questions.map((q, qIdx) => `
+                                            <div class="flex gap-4">
+                                                <div class="w-6 h-6 border border-black flex items-center justify-center text-[8px] font-black shrink-0">${qIdx+1}</div>
+                                                <div class="flex-1 border-b border-zinc-200 h-8"></div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            return html;
         }
 
-        function renderLanding() {
-            return `
-            <div class="h-full flex flex-col items-center justify-center p-8 text-center bg-white">
-                <div class="font-black italic text-4xl mb-2 tracking-tighter">NoppoExam.</div>
-                <div class="w-12 h-1 bg-black mb-8"></div>
-                <h1 class="text-3xl font-black mb-4 tracking-tight leading-tight">定期テスト作成を、<br>スマホで完結。</h1>
-                <p class="text-zinc-400 mb-12 max-w-xs text-sm font-medium">美しいレイアウト、解答用紙、QR管理。<br>先生のための、もっとも純粋なツール。</p>
-                <button onclick="goToLogin()" class="w-full max-w-xs py-4 bg-black text-white font-black text-sm tracking-widest hover:opacity-90 active:scale-95 transition-all">
-                    SIGN IN WITH NOPPO
-                </button>
-            </div>`;
-        }
+        window.exportPDF = () => {
+            const element = document.getElementById('pdf-content');
+            const opt = {
+                margin: 0,
+                filename: `Exam_${state.test.subject}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2 },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+            html2pdf().set(opt).from(element).save();
+        };
 
-        function renderMobileHeader() {
-            return `
-            <header class="h-14 border-b border-zinc-100 bg-white flex items-center justify-between px-6 shrink-0 z-10">
-                <div class="font-black italic text-lg tracking-tighter">NoppoExam.</div>
-                <div id="save-indicator" class="text-[9px] font-black text-zinc-300"></div>
-            </header>`;
-        }
-
-        function renderBottomNav() {
-            const tabs = [
-                { id: 'edit', icon: 'edit-3', label: '作成' },
-                { id: 'preview', icon: 'eye', label: 'プレビュー' },
-                { id: 'settings', icon: 'sliders', label: '設定' }
-            ];
-            return `
-            <nav class="h-16 border-t border-zinc-100 bg-white flex items-center justify-around px-2 shrink-0">
-                ${tabs.map(t => `
-                    <button onclick="switchTab('${t.id}')" class="flex flex-col items-center gap-1 transition-all ${state.activeTab === t.id ? 'text-black' : 'text-zinc-300'}">
-                        <i data-lucide="${t.icon}" class="w-5 h-5"></i>
-                        <span class="text-[9px] font-black uppercase tracking-tighter">${t.label}</span>
-                    </button>
-                `).join('')}
-            </nav>`;
-        }
-
-        function renderEditor() {
-            return `
-            <div class="p-6 pb-24 animate-fade max-w-2xl mx-auto">
-                <div class="mb-10 space-y-2">
-                    <input type="text" value="${state.testData.title}" oninput="updateTestData('title', this.value)" class="w-full text-3xl font-black tracking-tighter outline-none placeholder-zinc-200" placeholder="試験名">
-                    <input type="text" value="${state.testData.subject}" oninput="updateTestData('subject', this.value)" class="w-full text-lg font-bold text-zinc-400 outline-none" placeholder="教科名">
+        // Initialize
+        async function init() {
+            const user = await new Promise(resolve => {
+                onAuthStateChanged(auth, async (u) => {
+                    if (!u) {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+            type="text" value="${state.testData.subject}" oninput="updateTestData('subject', this.value)" class="w-full text-lg font-bold text-zinc-400 outline-none" placeholder="教科名">
                 </div>
 
                 <div class="space-y-6">
