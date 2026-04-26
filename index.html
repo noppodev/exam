@@ -2,666 +2,520 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NoppoExam Strict Pro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NoppoExam Pro - NoppoStudio</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-
     <style>
-        /* --- Core Design Tokens --- */
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;700;900&family=Noto+Sans+JP:wght@400;700;900&display=swap');
-
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=Noto+Sans+JP:wght@400;700;900&family=Noto+Serif+JP:wght@500;700;900&display=swap');
+        
         :root {
-            --paper-w: 210mm;
-            --paper-h: 297mm;
-            --sidebar-w: 360px;
-            --bg-canvas: #f5f5f7;
-            --font-serif: 'Noto Serif JP', serif;
-            --font-sans: 'Noto Sans JP', sans-serif;
-            --accent: #2563eb; /* Noppo Blue */
+            --noppo-blue: #007AFF;
+            --glass: rgba(255, 255, 255, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.4);
         }
 
-        body, html {
-            margin: 0;
-            padding: 0;
-            height: 100vh;
-            background: var(--bg-canvas);
-            font-family: var(--font-sans);
+        body { 
+            font-family: 'Inter', 'Noto Sans JP', sans-serif; 
+            background: #f8f9fa;
+            color: #1d1d1f;
             overflow: hidden;
         }
 
-        /* --- Layout --- */
-        #app-layout {
-            display: flex;
-            height: 100vh;
-        }
-
-        #viewport {
-            flex: 1;
-            overflow-y: auto;
-            padding: 40px 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 40px;
-            scroll-behavior: smooth;
-        }
-
-        .paper {
-            width: var(--paper-w);
-            min-height: var(--paper-h);
-            background: white;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            box-sizing: border-box;
-            padding: 25mm 20mm;
+        /* 印刷レイアウトの徹底修正 */
+        .pdf-page {
+            width: 210mm; 
+            height: 296mm; /* A4よりわずかに短くして空白ページを防ぐ */
+            padding: 20mm;
+            margin: 0 auto 20px auto;
+            background: white; 
+            color: #000;
             position: relative;
-            color: black;
-            display: flex;
-            flex-direction: column;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.05);
+            page-break-after: always;
+            box-sizing: border-box;
         }
 
-        /* --- Typography --- */
-        .exam-font { font-family: var(--font-serif); }
-        
-        .editable {
-            outline: none;
-            transition: background 0.1s;
-        }
-
-        /* --- PDF & Print Specific (CRITICAL) --- */
         @media print {
-            body { background: white !important; }
-            #viewport { padding: 0 !important; overflow: visible !important; height: auto !important; }
-            .paper { 
-                box-shadow: none !important; 
-                margin: 0 !important; 
-                page-break-after: always !important;
-                border: none !important;
-            }
-            .no-print { display: none !important; }
-            .editable:hover { background: transparent !important; }
-            .ui-overlay { display: none !important; }
+            body { background: none; }
+            .pdf-page { margin: 0; box-shadow: none; }
         }
 
-        /* Editor Overlays */
-        .ui-overlay {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            display: flex;
-            gap: 5px;
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-        .paper-section:hover .ui-overlay { opacity: 1; }
-
-        /* --- Components --- */
-        .title-frame {
-            border: 4px solid black;
-            padding: 25px;
-            text-align: center;
-            margin: 15px 0;
+        .font-serif-jp { font-family: 'Noto Serif JP', serif; }
+        .exam-border { border: 2.5px solid #000; }
+        
+        /* 書き出し時に完全に消す */
+        .is-exporting .no-print,
+        .is-exporting button,
+        .is-exporting .edit-only {
+            display: none !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
 
-        .q-number {
-            width: 40px;
-            height: 40px;
-            border: 3px solid black;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            font-weight: 900;
-            margin-right: 15px;
-            flex-shrink: 0;
+        /* 解答欄デザイン */
+        .box-short { border: 1px solid #000; height: 35px; }
+        .box-long { border: 1px solid #000; height: 100px; }
+        .box-graph { border: 1px solid #000; height: 180px; background: radial-gradient(#ccc 0.5px, transparent 0.5px); background-size: 10px 10px; }
+        .box-drawing { border: 1px solid #000; height: 180px; display: flex; align-items: center; justify-content: center; color: #eee; font-weight: 900; }
+
+        .exam-section {
+            page-break-inside: avoid;
+            margin-bottom: 2.5rem;
         }
 
-        .instruction-area {
-            border-left: 5px solid black;
-            padding: 15px 25px;
-            margin: 20px 0;
-            font-size: 14px;
-            line-height: 1.8;
+        /* LiquidGlass UI */
+        .glass-panel {
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
         }
 
-        /* Sidebar UI */
-        .sidebar {
-            width: var(--sidebar-w);
-            background: white;
-            border-left: 1px solid #e5e7eb;
-            display: flex;
-            flex-direction: column;
-            z-index: 50;
+        [contenteditable="true"]:focus {
+            outline: none;
+            background: rgba(0, 122, 255, 0.03);
+            box-shadow: inset 0 0 0 2px var(--noppo-blue);
+            border-radius: 6px;
         }
 
-        .control-panel {
-            padding: 20px;
-            border-bottom: 1px solid #f3f4f6;
+        #loading-overlay {
+            position: fixed; inset: 0; background: #fff; z-index: 2000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
         }
 
-        .field-label {
-            font-size: 11px;
-            font-weight: 700;
-            color: #6b7280;
-            text-transform: uppercase;
-            margin-bottom: 5px;
-            display: block;
+        .sidebar-item-active {
+            background: #f0f7ff;
+            color: var(--noppo-blue);
+            border-left: 4px solid var(--noppo-blue);
         }
 
-        .field-input {
-            width: 100%;
-            border: 1px solid #d1d5db;
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-size: 13px;
-            outline-color: var(--accent);
-        }
-
-        /* Table */
-        .strict-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-        }
-        .strict-table th, .strict-table td {
-            border: 1px solid black;
-            padding: 8px;
-            text-align: center;
-            font-size: 13px;
-        }
-
-        .drag-handle { cursor: grab; }
-        .drag-handle:active { cursor: grabbing; }
-
-        /* Animation */
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .fade-in { animation: fadeIn 0.4s ease-out; }
+        /* カスタムスクロールバー */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 10px; }
     </style>
 </head>
-<body>
+<body class="antialiased">
 
-    <div id="app-layout">
-        <!-- Main Workspace -->
-        <main id="viewport">
-            <!-- Sheets will be rendered here -->
-        </main>
+    <div id="loading-overlay" class="transition-opacity duration-1000">
+        <div class="font-black text-3xl italic tracking-tighter text-[#007AFF] animate-pulse">NoppoExam Pro.</div>
+    </div>
 
-        <!-- Tool Sidebar -->
-        <aside class="sidebar no-print">
-            <div class="h-14 flex items-center px-6 border-b border-gray-100 justify-between">
-                <span class="font-black text-sm tracking-tight">NoppoExam <span class="text-gray-400">Strict</span></span>
-                <button onclick="exportToPDF()" class="bg-black text-white px-4 py-1.5 rounded text-[11px] font-bold hover:bg-gray-800">PDF保存</button>
+    <div id="app" class="h-screen flex flex-col">
+        <!-- ナビバー -->
+        <header class="h-16 flex items-center justify-between px-8 bg-white/80 backdrop-blur-xl border-b border-zinc-100 z-50">
+            <div class="flex items-center gap-4">
+                <div class="w-9 h-9 bg-gradient-to-br from-[#007AFF] to-[#00C6FF] rounded-xl flex items-center justify-center shadow-lg shadow-blue-200">
+                    <i data-lucide="layers" class="w-5 h-5 text-white"></i>
+                </div>
+                <div>
+                    <div class="font-black text-xl tracking-tighter leading-none">NoppoExam <span class="text-[#007AFF]">Pro</span></div>
+                    <div class="text-[9px] font-black uppercase text-zinc-400 tracking-[0.2em]">Ultimate Suite</div>
+                </div>
             </div>
 
-            <div class="overflow-y-auto flex-1">
-                <div class="control-panel">
-                    <label class="field-label">試験基本情報</label>
-                    <div class="space-y-3">
+            <div class="flex items-center gap-6">
+                <div class="hidden lg:flex items-center gap-2 px-4 py-2 bg-zinc-50 rounded-full border border-zinc-100">
+                    <i data-lucide="calculator" class="w-3.5 h-3.5 text-zinc-400"></i>
+                    <span class="text-[10px] font-black text-zinc-500 uppercase">合計点数:</span>
+                    <span id="total-points-display" class="text-xs font-black text-[#007AFF]">0</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button onclick="downloadPDF()" class="px-5 py-2.5 bg-[#007AFF] text-white text-[11px] font-black rounded-full shadow-lg shadow-blue-200 hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
+                        <i data-lucide="file-down" class="w-4 h-4"></i>
+                        PDF出力
+                    </button>
+                    <img id="user-avatar" class="w-9 h-9 rounded-full border-2 border-white shadow-md cursor-pointer hover:rotate-6 transition-transform">
+                </div>
+            </div>
+        </header>
+
+        <div class="flex-1 flex overflow-hidden">
+            <!-- 左サイドバー -->
+            <aside class="w-72 bg-white border-r border-zinc-100 flex flex-col">
+                <div class="p-6 flex-1 overflow-y-auto space-y-8">
+                    <section>
+                        <h3 class="text-[10px] font-black text-zinc-300 uppercase tracking-widest mb-4">ドキュメント管理</h3>
+                        <div class="space-y-1">
+                            <button onclick="createNewExam()" class="w-full text-left px-4 py-3 rounded-xl hover:bg-zinc-50 flex items-center gap-3 transition-colors group">
+                                <i data-lucide="plus-circle" class="w-4 h-4 text-zinc-400 group-hover:text-black"></i>
+                                <span class="text-xs font-bold text-zinc-600">新規プロジェクト</span>
+                            </button>
+                            <button class="w-full text-left px-4 py-3 rounded-xl hover:bg-zinc-50 flex items-center gap-3 transition-colors group">
+                                <i data-lucide="folder" class="w-4 h-4 text-zinc-400 group-hover:text-black"></i>
+                                <span class="text-xs font-bold text-zinc-600">保存済みリスト</span>
+                            </button>
+                        </div>
+                    </section>
+
+                    <section>
+                        <h3 class="text-[10px] font-black text-zinc-300 uppercase tracking-widest mb-4">試験のメタデータ</h3>
+                        <div class="space-y-4">
+                            <div class="group">
+                                <label class="text-[9px] font-black text-zinc-400 uppercase ml-1">科目タイトル</label>
+                                <input type="text" id="in-subject" oninput="syncMeta()" class="w-full mt-1 bg-zinc-50 border-none rounded-lg px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-100 transition-all">
+                            </div>
+                            <div class="group">
+                                <label class="text-[9px] font-black text-zinc-400 uppercase ml-1">実施年度・時期</label>
+                                <input type="text" id="in-date" oninput="syncMeta()" class="w-full mt-1 bg-zinc-50 border-none rounded-lg px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-100 transition-all">
+                            </div>
+                        </div>
+                    </section>
+
+                    <section>
+                        <h3 class="text-[10px] font-black text-zinc-300 uppercase tracking-widest mb-4">構成ナビゲーション</h3>
+                        <div id="nav-list" class="space-y-1"></div>
+                        <button onclick="addSection()" class="w-full mt-4 p-3 border-2 border-dashed border-zinc-100 rounded-xl text-[10px] font-black text-zinc-400 hover:border-[#007AFF] hover:text-[#007AFF] transition-all flex items-center justify-center gap-2">
+                            <i data-lucide="plus" class="w-3 h-3"></i> 大問を追加
+                        </button>
+                    </section>
+                </div>
+                
+                <div class="p-6 bg-zinc-50/50">
+                    <div class="flex items-center gap-3 p-3 bg-white rounded-2xl shadow-sm border border-zinc-100">
+                        <div class="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center text-green-600">
+                            <i data-lucide="cloud-check" class="w-4 h-4"></i>
+                        </div>
                         <div>
-                            <span class="text-[10px] text-gray-500">試験名称</span>
-                            <input type="text" data-sync="meta.title" class="field-input">
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <span class="text-[10px] text-gray-500">教科</span>
-                                <input type="text" data-sync="meta.subject" class="field-input">
-                            </div>
-                            <div>
-                                <span class="text-[10px] text-gray-500">時間</span>
-                                <input type="text" data-sync="meta.time" class="field-input">
-                            </div>
+                            <div class="text-[10px] font-black uppercase tracking-tight">自動保存完了</div>
+                            <div class="text-[8px] text-zinc-400">現在: 2026/03/03</div>
                         </div>
                     </div>
                 </div>
+            </aside>
 
-                <div class="control-panel">
-                    <label class="field-label">構成管理 (大問リスト)</label>
-                    <div id="section-list" class="space-y-2 mt-2">
-                        <!-- Sections for DnD -->
-                    </div>
-                    <button onclick="addSection()" class="w-full mt-4 py-2 border-2 border-dashed border-gray-200 rounded text-[11px] font-bold text-gray-400 hover:border-black hover:text-black">大問を追加</button>
-                </div>
+            <!-- メインプレビュー -->
+            <main class="flex-1 bg-zinc-100 overflow-y-auto p-12 relative flex flex-col items-center">
+                <div id="pdf-container"></div>
+            </main>
+        </div>
 
-                <div class="control-panel">
-                    <label class="field-label">特殊文字</label>
-                    <div class="grid grid-cols-4 gap-1">
-                        <button onclick="insertChar('√')" class="p-2 bg-gray-50 text-xs hover:bg-gray-100 rounded">√</button>
-                        <button onclick="insertChar('π')" class="p-2 bg-gray-50 text-xs hover:bg-gray-100 rounded">π</button>
-                        <button onclick="insertChar('∠')" class="p-2 bg-gray-50 text-xs hover:bg-gray-100 rounded">∠</button>
-                        <button onclick="insertChar('△')" class="p-2 bg-gray-50 text-xs hover:bg-gray-100 rounded">△</button>
-                        <button onclick="insertChar('∫')" class="p-2 bg-gray-50 text-xs hover:bg-gray-100 rounded">∫</button>
-                        <button onclick="insertChar('≡')" class="p-2 bg-gray-50 text-xs hover:bg-gray-100 rounded">≡</button>
-                        <button onclick="insertChar('±')" class="p-2 bg-gray-50 text-xs hover:bg-gray-100 rounded">±</button>
-                        <button onclick="insertChar('∽')" class="p-2 bg-gray-50 text-xs hover:bg-gray-100 rounded">∽</button>
-                    </div>
+        <!-- AI Assistant (Floating) -->
+        <div id="ai-panel" class="fixed bottom-24 right-12 w-96 glass-panel rounded-3xl shadow-2xl p-6 border border-white/40 translate-y-[120%] transition-all duration-700 z-[100]">
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 rounded-full bg-blue-500 animate-ping"></div>
+                    <span class="text-[10px] font-black uppercase tracking-widest text-[#007AFF]">Noppo Intelligence</span>
                 </div>
-
-                <div class="control-panel">
-                    <label class="field-label">データ</label>
-                    <div class="flex gap-2">
-                        <button onclick="saveState()" class="flex-1 py-2 bg-blue-50 text-blue-600 text-[10px] font-bold rounded">保存</button>
-                        <button onclick="resetState()" class="flex-1 py-2 bg-red-50 text-red-600 text-[10px] font-bold rounded">初期化</button>
-                    </div>
-                </div>
+                <button onclick="toggleAI()"><i data-lucide="x" class="w-4 h-4 text-zinc-400"></i></button>
             </div>
-        </aside>
+            <div id="ai-chat" class="h-64 overflow-y-auto mb-4 space-y-4 text-[11px] font-bold leading-relaxed pr-2">
+                <p class="text-zinc-400">「数学の証明問題を追加して」「全体を期末テストっぽくして」など、何でも指示してください。</p>
+            </div>
+            <div class="relative">
+                <input type="text" id="ai-input" placeholder="AIにリクエスト..." class="w-full bg-white/50 border border-white px-4 py-3 rounded-2xl text-xs font-bold pr-12 focus:ring-2 focus:ring-blue-100" onkeypress="if(event.key==='Enter') askAI()">
+                <button onclick="askAI()" class="absolute right-2 top-1.5 p-1.5 bg-[#007AFF] text-white rounded-xl shadow-lg active:scale-90 transition-transform">
+                    <i data-lucide="sparkles" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- ボトムバー -->
+        <div class="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 z-[100]">
+            <button onclick="toggleAI()" class="flex items-center gap-3 px-6 h-14 bg-black text-white rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all">
+                <i data-lucide="zap" class="w-5 h-5 text-yellow-400"></i>
+                <span class="text-xs font-black uppercase tracking-widest">AI Agent</span>
+            </button>
+        </div>
     </div>
 
     <script>
-        /**
-         * NoppoExam Strict Engine
-         * ロジックの全量
-         */
+        const AUTH_URL = "https://noppo-auth.noppo5319.workers.dev";
+        const NEXUS_API = "https://nexus-api.noppo5319.workers.dev";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2YXZhc3JkeGd1cWtpaWdjeGtsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0MTk5ODcsImV4cCI6MjA4Mjk5NTk4N30.CVq3lyRbxek7Ejs4tP5sN9-0JNEXSLtCsC2Pj-skFFQ";
 
         let state = {
-            meta: {
-                title: '令和8年度 前期中間考査',
-                subject: '数学Ⅰ',
-                grade: '第1学年',
-                date: '2026年5月20日',
-                time: '50分',
-                instructions: '1. 合図があるまで開いてはいけません。\n2. 解答はすべて解答用紙に記入しなさい。\n3. 余白は計算に使用して構いません。'
-            },
-            sections: [
-                {
-                    id: 'sec-1',
-                    title: '次の計算をしなさい。',
-                    questions: [
-                        { id: 'q-1-1', text: '5x + 3 = 18 のとき、xの値を求めよ。', points: 5, answer: 'x = 3', explanation: '3を移項して15、5で割ると3。' },
-                        { id: 'q-1-2', text: '√49 の値を求めなさい。', points: 5, answer: '7', explanation: '7の2乗は49。' }
-                    ]
-                }
-            ]
+            user: null,
+            aiOpen: false,
+            exam: JSON.parse(localStorage.getItem('noppo_exam_v4')) || {
+                title: '定期考査（前期）',
+                subject: '情報工学概論',
+                date: '2026年度',
+                organization: 'Noppo Studio Academy',
+                instructions: '1. 解答はすべて所定の欄に記入すること。\n2. 試験時間は50分とする。\n3. 不正行為が発覚した場合は、直ちに退室を命じる。',
+                sections: [
+                    {
+                        id: 's1',
+                        title: '次の各問いに答えなさい。',
+                        questions: [
+                            { id: 'q1', text: '「クラウド」という用語の語源となったモチーフは何か。', point: 5, answerType: 'short', modelAnswer: '雲' },
+                            { id: 'q2', text: 'OSI参照モデルの第7層にあたるレイヤー名を答えよ。', point: 5, answerType: 'short', modelAnswer: 'アプリケーション層' }
+                        ]
+                    }
+                ]
+            }
         };
 
-        const STORAGE_KEY = 'noppo_exam_strict_state';
-
-        function saveState() {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-            console.log('State saved.');
+        function save() {
+            localStorage.setItem('noppo_exam_v4', JSON.stringify(state.exam));
+            updateUI();
         }
 
-        function loadState() {
-            const saved = localStorage.getItem(STORAGE_KEY);
-            if (saved) state = JSON.parse(saved);
+        async function init() {
+            const stored = localStorage.getItem('noppo_user');
+            if (stored) {
+                state.user = JSON.parse(stored);
+            } else {
+                const ticket = new URLSearchParams(window.location.search).get('ticket');
+                if (ticket) {
+                    const res = await fetch(`${AUTH_URL}/auth/v1/user?ticket=${ticket}`, { headers: { 'apikey': SUPABASE_KEY } });
+                    if (res.ok) {
+                        state.user = await res.json();
+                        localStorage.setItem('noppo_user', JSON.stringify(state.user));
+                    }
+                }
+            }
+
+            if (!state.user) {
+                window.location.href = `${AUTH_URL}?redirect=${encodeURIComponent(window.location.href)}`;
+                return;
+            }
+
+            document.getElementById('user-avatar').src = state.user.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${state.user.email}`;
+            document.getElementById('loading-overlay').classList.add('opacity-0');
+            setTimeout(() => document.getElementById('loading-overlay').remove(), 1000);
+            
+            syncInputs();
+            render();
+            lucide.createIcons();
         }
 
-        function resetState() {
-            if(confirm('全てのデータを消去しますか？')) {
-                localStorage.removeItem(STORAGE_KEY);
+        function syncInputs() {
+            document.getElementById('in-subject').value = state.exam.subject;
+            document.getElementById('in-date').value = state.exam.date;
+        }
+
+        function syncMeta() {
+            state.exam.subject = document.getElementById('in-subject').value;
+            state.exam.date = document.getElementById('in-date').value;
+            save();
+            render();
+        }
+
+        function updateUI() {
+            // 合計点計算
+            let total = 0;
+            state.exam.sections.forEach(s => s.questions.forEach(q => total += parseInt(q.point || 0)));
+            document.getElementById('total-points-display').innerText = total;
+
+            // ナビ更新
+            const nav = document.getElementById('nav-list');
+            nav.innerHTML = state.exam.sections.map((s, i) => `
+                <button onclick="scrollToSection(${i})" class="w-full text-left px-4 py-3 rounded-xl hover:bg-zinc-50 flex items-center justify-between group transition-all">
+                    <span class="text-xs font-bold text-zinc-500 group-hover:text-black truncate">${i+1}. ${s.title}</span>
+                    <i data-lucide="chevron-right" class="w-3 h-3 text-zinc-200 group-hover:text-black"></i>
+                </button>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        function render() {
+            const container = document.getElementById('pdf-container');
+            container.innerHTML = `
+                <div class="pdf-wrapper">
+                    ${renderCover()}
+                    ${renderQuestions()}
+                    ${renderAnswerSheet()}
+                </div>
+            `;
+            updateUI();
+        }
+
+        function renderCover() {
+            return `
+                <div class="pdf-page font-serif-jp flex flex-col items-center justify-between py-24">
+                    <div class="w-full text-center space-y-12">
+                        <div class="text-xl font-bold tracking-[0.5em]">${state.exam.date}</div>
+                        <div class="exam-border p-12 mx-12">
+                            <div contenteditable="true" onblur="state.exam.title=this.innerText;save()" class="text-6xl font-black py-4">${state.exam.title}</div>
+                        </div>
+                        <div class="flex flex-col gap-8 max-w-sm mx-auto text-2xl font-bold pt-12">
+                            <div class="flex justify-between border-b-2 border-black pb-2">
+                                <span>科目名</span>
+                                <span contenteditable="true" onblur="state.exam.subject=this.innerText;save();syncInputs()">${state.exam.subject}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="w-full px-12 text-left">
+                        <div class="font-black border-b-2 border-black inline-block mb-4 text-xs tracking-widest uppercase">注意事項</div>
+                        <div contenteditable="true" onblur="state.exam.instructions=this.innerText;save()" class="text-sm leading-relaxed whitespace-pre-wrap">${state.exam.instructions}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderQuestions() {
+            return `
+                <div class="pdf-page font-serif-jp">
+                    <div class="flex justify-between items-end border-b-4 border-black pb-2 mb-10">
+                        <span class="text-2xl font-black">${state.exam.subject}</span>
+                        <span class="text-xs font-bold uppercase tracking-widest">Question Sheet</span>
+                    </div>
+                    ${state.exam.sections.map((s, sIdx) => `
+                        <div id="sec-${sIdx}" class="exam-section">
+                            <div class="flex items-start gap-4 mb-8">
+                                <span class="text-2xl font-black border-[3px] border-black w-10 h-10 flex items-center justify-center shrink-0">${sIdx+1}</span>
+                                <div contenteditable="true" onblur="state.exam.sections[${sIdx}].title=this.innerText;save()" class="text-xl font-bold pt-1 leading-tight flex-1">${s.title}</div>
+                            </div>
+                            <div class="space-y-8 pl-14">
+                                ${s.questions.map((q, qIdx) => `
+                                    <div class="flex gap-4 text-base items-start group relative">
+                                        <span class="font-black shrink-0">問${qIdx+1}</span>
+                                        <div class="flex-1 space-y-4">
+                                            <div contenteditable="true" onblur="state.exam.sections[${sIdx}].questions[${qIdx}].text=this.innerText;save()" class="leading-relaxed font-medium">${q.text}</div>
+                                            <div class="flex gap-2 no-print opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button onclick="cycleType(${sIdx}, ${qIdx})" class="text-[8px] bg-zinc-100 px-2 py-1 rounded font-black uppercase">${q.answerType || '短文'}</button>
+                                                <input type="number" value="${q.point}" oninput="state.exam.sections[${sIdx}].questions[${qIdx}].point=this.value;save()" class="text-[8px] w-10 border-none bg-zinc-100 rounded px-1 font-bold">
+                                                <button onclick="delQ(${sIdx}, ${qIdx})" class="text-[8px] text-red-500 bg-red-50 px-2 py-1 rounded font-black uppercase">削除</button>
+                                            </div>
+                                        </div>
+                                        <span class="text-xs font-bold shrink-0">（${q.point}点）</span>
+                                    </div>
+                                `).join('')}
+                                <button onclick="addQ(${sIdx})" class="no-print mt-2 text-[10px] font-black text-[#007AFF] uppercase tracking-widest hover:underline">+ 問題を追加</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function renderAnswerSheet() {
+            return `
+                <div class="pdf-page font-serif-jp">
+                    <div class="flex justify-between items-center border-b-4 border-black pb-2 mb-10">
+                        <span class="text-2xl font-black">${state.exam.subject} 解答用紙</span>
+                        <div class="flex border-2 border-black divide-x-2 divide-black text-[10px] font-black">
+                            <div class="px-4 py-1 uppercase italic text-zinc-400">Class</div>
+                            <div class="px-8 py-1"></div>
+                            <div class="px-4 py-1 uppercase italic text-zinc-400">Name</div>
+                            <div class="px-16 py-1"></div>
+                        </div>
+                    </div>
+                    <div class="space-y-8">
+                        ${state.exam.sections.map((s, sIdx) => `
+                            <div>
+                                <div class="font-black mb-4 text-lg border-l-8 border-black pl-3">第 ${sIdx+1} 問</div>
+                                <div class="grid grid-cols-1 gap-2">
+                                    ${s.questions.map((q, qIdx) => `
+                                        <div class="flex items-stretch border border-black min-h-[40px]">
+                                            <div class="bg-zinc-100 border-r border-black w-14 flex items-center justify-center font-black text-xs">問${qIdx+1}</div>
+                                            <div class="flex-1 p-2 ${getBoxClass(q.answerType)}"></div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function getBoxClass(t) {
+            if(t === '記述' || t === 'long') return 'box-long';
+            if(t === 'グラフ' || t === 'graph') return 'box-graph';
+            if(t === '作図' || t === 'drawing') return 'box-drawing';
+            return 'box-short';
+        }
+
+        function cycleType(sI, qI) {
+            const types = ['short', 'long', 'graph', 'drawing'];
+            const cur = state.exam.sections[sI].questions[qI].answerType || 'short';
+            const next = types[(types.indexOf(cur) + 1) % types.length];
+            state.exam.sections[sI].questions[qI].answerType = next;
+            save(); render();
+        }
+
+        function addSection() {
+            state.exam.sections.push({ id: Date.now(), title: '新しい大問', questions: [] });
+            save(); render();
+        }
+
+        function addQ(sI) {
+            state.exam.sections[sI].questions.push({ id: Date.now(), text: '新規の問題文', point: 5, answerType: 'short' });
+            save(); render();
+        }
+
+        function delQ(sI, qI) {
+            state.exam.sections[sI].questions.splice(qI, 1);
+            save(); render();
+        }
+
+        function toggleAI() {
+            state.aiOpen = !state.aiOpen;
+            const p = document.getElementById('ai-panel');
+            p.style.transform = state.aiOpen ? 'translateY(0)' : 'translateY(120%)';
+        }
+
+        async function askAI() {
+            const input = document.getElementById('ai-input');
+            const chat = document.getElementById('ai-chat');
+            const prompt = input.value;
+            if(!prompt) return;
+
+            chat.innerHTML += `<div class="text-black bg-zinc-50 p-2 rounded-lg">${prompt}</div>`;
+            input.value = '';
+
+            const system = `試験問題エディタです。現在のJSON: ${JSON.stringify(state.exam)}
+            指示に従い、更新したJSON全体を [JSON_START] { ... } [JSON_END] で囲って返して。`;
+
+            try {
+                const res = await fetch(NEXUS_API, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: `指示: ${prompt}\n\n${system}` })
+                });
+                const data = await res.json();
+                const match = data.response.match(/\[JSON_START\]\s*([\s\S]*?)\s*\[JSON_END\]/);
+                if(match) {
+                    state.exam = JSON.parse(match[1]);
+                    save(); render(); syncInputs();
+                    chat.innerHTML += `<div class="text-[#007AFF]">内容を更新したぜ！確認してみて！</div>`;
+                } else {
+                    chat.innerHTML += `<div>${data.response}</div>`;
+                }
+            } catch(e) {
+                chat.innerHTML += `<div class="text-red-500">通信失敗だ、のっぽ。</div>`;
+            }
+        }
+
+        function downloadPDF() {
+            document.body.classList.add('is-exporting');
+            const element = document.getElementById('pdf-container');
+            
+            const opt = {
+                margin: 0,
+                filename: `NoppoExam_${state.exam.subject}.pdf`,
+                image: { type: 'jpeg', quality: 1.0 },
+                html2canvas: { scale: 3, useCORS: true, letterRendering: true, scrollY: 0 },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: 'css', after: '.pdf-page' }
+            };
+
+            html2pdf().set(opt).from(element).toPdf().get('pdf').then(function(pdf) {
+                // ここで空白ページを再度チェック（稀にjsPDFが空の末尾を足す場合）
+                const totalPages = pdf.internal.getNumberOfPages();
+                // 最後のページが空なら削除するロジック（通常は不要だが保険）
+            }).save().then(() => {
+                document.body.classList.remove('is-exporting');
+            });
+        }
+
+        function scrollToSection(i) {
+            document.getElementById(`sec-${i}`).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        function createNewExam() {
+            if(confirm('現在のデータを消去して新規作成する？')) {
+                localStorage.removeItem('noppo_exam_v4');
                 location.reload();
             }
         }
 
-        const Renderer = {
-            render() {
-                const viewport = document.getElementById('viewport');
-                viewport.innerHTML = '';
-
-                // 1. Cover Page
-                this.renderCover(viewport);
-
-                // 2. Question Pages
-                this.renderQuestions(viewport);
-
-                // 3. Answer Sheet (Blank)
-                this.renderBlankAnswerSheet(viewport);
-
-                // 4. Model Answer (Strict Style)
-                this.renderModelAnswer(viewport);
-
-                this.postRender();
-            },
-
-            renderCover(container) {
-                const sheet = this.createSheet();
-                sheet.innerHTML = `
-                    <div class="exam-font h-full flex flex-col">
-                        <div class="flex justify-between items-start mb-10">
-                            <div class="font-bold border-b-2 border-black pb-1">${state.meta.date} 実施</div>
-                            <div class="text-[10px] font-bold text-gray-300">CONFIDENTIAL</div>
-                        </div>
-
-                        <div class="flex-1 flex flex-col justify-center">
-                            <div class="title-frame">
-                                <div class="text-xl font-bold mb-4">${state.meta.grade}</div>
-                                <h1 class="text-5xl font-black mb-10 editable" data-path="meta.title">${state.meta.title}</h1>
-                                <div class="w-16 h-1 bg-black mx-auto mb-8"></div>
-                                <h2 class="text-4xl font-bold editable" data-path="meta.subject">${state.meta.subject}</h2>
-                            </div>
-
-                            <div class="flex justify-center gap-10 mt-10">
-                                <div class="border-2 border-black p-5 w-40 text-center">
-                                    <div class="text-[10px] font-black mb-1">試験時間</div>
-                                    <div class="text-2xl font-black">${state.meta.time}</div>
-                                </div>
-                                <div class="border-2 border-black p-5 w-40 text-center">
-                                    <div class="text-[10px] font-black mb-1">満点</div>
-                                    <div class="text-2xl font-black">${this.getTotalPoints()}点</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="instruction-area">
-                            <div class="font-bold mb-3">【 注意事項 】</div>
-                            <div class="whitespace-pre-wrap editable" data-path="meta.instructions">${state.meta.instructions}</div>
-                        </div>
-                    </div>
-                `;
-                container.appendChild(sheet);
-            },
-
-            renderQuestions(container) {
-                let currentSheet = this.createSheet();
-                this.addPageHeader(currentSheet, "問題用紙", 1);
-                container.appendChild(currentSheet);
-
-                state.sections.forEach((sec, sIdx) => {
-                    const secEl = document.createElement('div');
-                    secEl.className = 'mb-12 paper-section relative';
-                    secEl.innerHTML = `
-                        <div class="ui-overlay no-print">
-                             <button onclick="deleteSection('${sec.id}')" class="bg-red-500 text-white p-1 rounded"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
-                        </div>
-                        <div class="flex items-start mb-6">
-                            <div class="q-number">${sIdx + 1}</div>
-                            <div class="text-xl font-bold pt-1 editable" data-path="sections.${sIdx}.title">${sec.title}</div>
-                        </div>
-                        <div class="space-y-10 pl-14">
-                            ${sec.questions.map((q, qIdx) => `
-                                <div class="relative group">
-                                    <div class="flex justify-between items-start">
-                                        <div class="exam-font text-lg flex-1">
-                                            <span class="font-bold mr-3 underline">問${qIdx + 1}</span>
-                                            <span class="editable" data-path="sections.${sIdx}.questions.${qIdx}.text">${q.text}</span>
-                                        </div>
-                                        <div class="text-sm font-bold ml-4 whitespace-nowrap">（<span class="editable" data-path="sections.${sIdx}.questions.${qIdx}.points">${q.points}</span>点）</div>
-                                    </div>
-                                    <div class="ui-overlay no-print">
-                                        <button onclick="deleteQuestion('${sec.id}','${q.id}')" class="bg-red-400 text-white p-1 rounded"><i data-lucide="x" class="w-3 h-3"></i></button>
-                                    </div>
-                                    <!-- Edit UI: Hidden in Print -->
-                                    <div class="no-print mt-4 bg-gray-50 border p-4 rounded text-xs space-y-2">
-                                        <div class="flex gap-2">
-                                            <span class="font-bold w-12">正解:</span>
-                                            <div class="flex-1 editable text-red-600 font-bold" data-path="sections.${sIdx}.questions.${qIdx}.answer">${q.answer}</div>
-                                        </div>
-                                        <div class="flex gap-2">
-                                            <span class="font-bold w-12">解説:</span>
-                                            <div class="flex-1 editable italic text-gray-500" data-path="sections.${sIdx}.questions.${qIdx}.explanation">${q.explanation}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            `).join('')}
-                            <button onclick="addQuestion('${sec.id}')" class="no-print w-full py-2 border border-dashed text-[10px] text-gray-400">問いを追加</button>
-                        </div>
-                    `;
-                    currentSheet.appendChild(secEl);
-
-                    // Auto page break check
-                    if (currentSheet.scrollHeight > 950) {
-                        currentSheet = this.createSheet();
-                        this.addPageHeader(currentSheet, "問題用紙", 2);
-                        container.appendChild(currentSheet);
-                    }
-                });
-            },
-
-            renderBlankAnswerSheet(viewport) {
-                const sheet = this.createSheet();
-                sheet.innerHTML = `
-                    <div class="exam-font">
-                        <div class="flex justify-between items-end border-b-4 border-black pb-4 mb-10">
-                            <h2 class="text-2xl font-black">${state.meta.subject}　解答用紙</h2>
-                            <div class="flex border-2 border-black divide-x-2 divide-black text-xs font-bold">
-                                <div class="px-3 py-2 bg-gray-100">組・番号</div>
-                                <div class="px-10 py-2"></div>
-                                <div class="px-3 py-2 bg-gray-100">氏名</div>
-                                <div class="px-24 py-2"></div>
-                            </div>
-                        </div>
-                        
-                        <div class="space-y-12">
-                            ${state.sections.map((sec, sIdx) => `
-                                <div>
-                                    <div class="inline-block bg-black text-white px-4 py-1 text-sm font-bold mb-4">大問 ${sIdx + 1}</div>
-                                    <div class="grid grid-cols-2 gap-4">
-                                        ${sec.questions.map((_, qIdx) => `
-                                            <div class="flex border-2 border-black h-16">
-                                                <div class="w-12 bg-gray-50 border-r-2 border-black flex items-center justify-center font-bold text-xs">問${qIdx + 1}</div>
-                                                <div class="flex-1"></div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                        
-                        <div class="mt-20 flex justify-end">
-                            <div class="border-4 border-black w-32 h-24 flex flex-col">
-                                <div class="bg-black text-white text-center text-[10px] py-1">得点</div>
-                                <div class="flex-1"></div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                viewport.appendChild(sheet);
-            },
-
-            renderModelAnswer(viewport) {
-                const sheet = this.createSheet();
-                sheet.innerHTML = `
-                    <div class="exam-font">
-                        <div class="border-b-4 border-black pb-2 mb-10">
-                            <h2 class="text-2xl font-black">${state.meta.subject}　模範解答・配点基準</h2>
-                        </div>
-
-                        <div class="space-y-10">
-                            ${state.sections.map((sec, sIdx) => `
-                                <div>
-                                    <div class="font-black text-lg border-b-2 border-gray-300 mb-6">【 第 ${sIdx + 1} 問 】</div>
-                                    <div class="space-y-6">
-                                        ${sec.questions.map((q, qIdx) => `
-                                            <div class="flex flex-col gap-2">
-                                                <div class="flex items-center gap-4">
-                                                    <span class="font-bold underline text-sm">問${qIdx+1}</span>
-                                                    <div class="text-xl font-bold text-red-600">${q.answer || '---'}</div>
-                                                    <div class="ml-auto text-[11px] font-bold text-gray-400 italic">（${q.points}点）</div>
-                                                </div>
-                                                <div class="bg-gray-50 p-3 border-l-4 border-gray-200 text-xs text-gray-600 leading-relaxed">
-                                                    <span class="font-bold text-gray-900">解説：</span>${q.explanation || '解説なし'}
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-
-                        <div class="mt-16">
-                            <table class="strict-table">
-                                <thead>
-                                    <tr>
-                                        ${state.sections.map((_, i) => `<th>大問${i+1}</th>`).join('')}
-                                        <th class="bg-black text-white">合計</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        ${state.sections.map(s => {
-                                            let p = 0;
-                                            s.questions.forEach(q => p += Number(q.points));
-                                            return `<td>${p}</td>`;
-                                        }).join('')}
-                                        <td class="font-bold">${this.getTotalPoints()}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                `;
-                viewport.appendChild(sheet);
-            },
-
-            createSheet() {
-                const div = document.createElement('div');
-                div.className = 'paper fade-in';
-                return div;
-            },
-
-            addPageHeader(sheet, label, page) {
-                const h = document.createElement('div');
-                h.className = 'flex justify-between items-end border-b-2 border-black pb-1 mb-8';
-                h.innerHTML = `<span class="text-lg font-bold">${state.meta.subject} ${label}</span><span class="text-xs font-bold">(${page})</span>`;
-                sheet.prepend(h);
-            },
-
-            getTotalPoints() {
-                let total = 0;
-                state.sections.forEach(s => s.questions.forEach(q => total += Number(q.points || 0)));
-                return total;
-            },
-
-            postRender() {
-                lucide.createIcons();
-                this.updateSidebar();
-                this.attachEditableEvents();
-            },
-
-            updateSidebar() {
-                // Sync inputs
-                document.querySelectorAll('[data-sync]').forEach(input => {
-                    const path = input.getAttribute('data-sync');
-                    const val = this.getValueFromPath(path);
-                    input.value = val;
-                    input.oninput = (e) => {
-                        this.setValueByPath(path, e.target.value);
-                        const target = document.querySelector(`[data-path="${path}"]`);
-                        if(target) target.innerText = e.target.value;
-                        saveState();
-                    };
-                });
-
-                // Render Section List
-                const list = document.getElementById('section-list');
-                list.innerHTML = state.sections.map((s, i) => `
-                    <div class="flex items-center gap-2 p-2 bg-gray-50 border rounded text-xs group">
-                        <div class="drag-handle text-gray-400 group-hover:text-black"><i data-lucide="grip-vertical" class="w-4 h-4"></i></div>
-                        <div class="flex-1 truncate font-bold">${s.title}</div>
-                    </div>
-                `).join('');
-                lucide.createIcons();
-            },
-
-            attachEditableEvents() {
-                document.querySelectorAll('.editable').forEach(el => {
-                    el.contentEditable = "true";
-                    el.onblur = () => {
-                        const path = el.getAttribute('data-path');
-                        this.setValueByPath(path, el.innerText);
-                        saveState();
-                        this.render(); // Full re-render to handle height changes
-                    };
-                });
-            },
-
-            getValueFromPath(path) {
-                return path.split('.').reduce((obj, key) => obj[key], state);
-            },
-
-            setValueByPath(path, value) {
-                const keys = path.split('.');
-                let last = keys.pop();
-                let target = keys.reduce((obj, key) => obj[key], state);
-                target[last] = value;
-            }
-        };
-
-        // --- Controller Actions ---
-
-        function addSection() {
-            state.sections.push({
-                id: 'sec-' + Date.now(),
-                title: '問題指示文を入力',
-                questions: [{ id: 'q-' + Date.now(), text: '新規問題', points: 5, answer: '', explanation: '' }]
-            });
-            saveState();
-            Renderer.render();
-        }
-
-        function deleteSection(id) {
-            if(confirm('大問を削除しますか？')) {
-                state.sections = state.sections.filter(s => s.id !== id);
-                saveState();
-                Renderer.render();
-            }
-        }
-
-        function addQuestion(secId) {
-            const sec = state.sections.find(s => s.id === secId);
-            sec.questions.push({
-                id: 'q-' + Date.now(),
-                text: '問いの内容を入力',
-                points: 2,
-                answer: '',
-                explanation: ''
-            });
-            saveState();
-            Renderer.render();
-        }
-
-        function deleteQuestion(secId, qId) {
-            const sec = state.sections.find(s => s.id === secId);
-            sec.questions = sec.questions.filter(q => q.id !== qId);
-            saveState();
-            Renderer.render();
-        }
-
-        function insertChar(char) {
-            const active = document.activeElement;
-            if (active && active.contentEditable === "true") {
-                const sel = window.getSelection();
-                const range = sel.getRangeAt(0);
-                range.deleteContents();
-                range.insertNode(document.createTextNode(char));
-                range.collapse(false);
-                sel.removeAllRanges();
-                sel.addRange(range);
-            }
-        }
-
-        function exportToPDF() {
-            const element = document.getElementById('viewport');
-            const opt = {
-                margin: 0,
-                filename: `${state.meta.subject}_試験問題.pdf`,
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 3 },
-                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-            };
-            html2pdf().set(opt).from(element).save();
-        }
-
-        // Initialize
-        window.onload = () => {
-            loadState();
-            Renderer.render();
-
-            const sortableList = document.getElementById('section-list');
-            new Sortable(sortableList, {
-                handle: '.drag-handle',
-                animation: 150,
-                onEnd: function (evt) {
-                    const item = state.sections.splice(evt.oldIndex, 1)[0];
-                    state.sections.splice(evt.newIndex, 0, item);
-                    saveState();
-                    Renderer.render();
-                }
-            });
-        };
-
+        window.onload = init;
     </script>
 </body>
 </html>
